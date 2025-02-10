@@ -1,10 +1,14 @@
-import React, { useState } from "react";
-import { View, Text, Button } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, Button, ActivityIndicator } from "react-native";
 import { WebView } from "react-native-webview";
+import * as Speech from "expo-speech";
 
-const SpeechToTextComponent = () => {
+const SpeechApp = () => {
   const [spokenText, setSpokenText] = useState("");
+  const [apiText, setApiText] = useState("");
+  const [loading, setLoading] = useState(true);
 
+  // HTML for WebView speech recognition
   const html = `
     <html>
       <head>
@@ -71,34 +75,94 @@ const SpeechToTextComponent = () => {
     </html>
   `;
 
+  // Fetch initial text from API
+  useEffect(() => {
+    const fetchText = async () => {
+      try {
+        const response = await fetch("http://172.16.45.67:5000/api/text");
+        const data = await response.json();
+        setApiText(data.message);
+      } catch (error) {
+        console.error("Error fetching text:", error);
+        setApiText("Failed to fetch text.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchText();
+  }, []);
+
+  // Send speech text to backend
+  const sendToBackend = async (text : string) => {
+    try {
+      const response = await fetch("http://172.16.45.67:5000/api/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error: ${errorText}`);
+      }
+      const data = await response.json();
+      console.log("Backend response:", data);
+
+      // Backend response is done and now Rohit will add the ml response 
+      
+      const textResponse = await fetch("http://172.16.45.67:5000/api/text");
+      const textData = await textResponse.json();
+      
+      // 3. Update state and speak
+      setApiText(textData.message);
+      Speech.speak(textData.message, { language: "en-US", pitch: 1.2, rate: 1.0 });
+    } catch (error) {
+      console.error("Error sending to backend:", error);
+    }
+  };
+
+  // Speak API text
+  const speakApiText = () => {
+    if (apiText) {
+      Speech.speak(apiText, { language: "en-US", pitch: 1.2, rate: 1.0 });
+    }
+  };
+
   return (
     <View style={{ flex: 1 }}>
-      <WebView
-        originWhitelist={["*"]}
-        source={{ html }}
-        onMessage={(event) => {
-          setSpokenText(event.nativeEvent.data);
-          sendToBackend(event.nativeEvent.data);
-        }}
-      />
-      <Text style={{ padding: 20, fontSize: 18 }}>Recognized Text: {spokenText}</Text>
+      {/* Speech to Text Section */}
+      <View style={{ height: 300 }}>
+        <WebView
+          originWhitelist={["*"]}
+          source={{ html }}
+          onMessage={(event) => {
+            setSpokenText(event.nativeEvent.data);
+            sendToBackend(event.nativeEvent.data);
+          }}
+        />
+      </View>
+      <Text style={{ padding: 15, fontSize: 16 }}>
+        Recognized: {spokenText}
+      </Text>
+
+      {/* Text to Speech Section */}
+      <View style={{ padding: 20, borderTopWidth: 1, borderTopColor: '#ccc' }}>
+        {loading ? (
+          <ActivityIndicator size="large" color="blue" />
+        ) : (
+          <>
+            <Text style={{ fontSize: 16, marginBottom: 15 }}>
+              API Message: {apiText}
+            </Text>
+            <Button
+              title="Speak API Message"
+              onPress={speakApiText}
+              color="#2196F3"
+            />
+          </>
+        )}
+      </View>
     </View>
   );
 };
 
-// Send text to Flask backend
-const sendToBackend = async (text) => {
-  try {
-    const response = await fetch("http://172.16.45.67:5000/api/speech", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    const data = await response.json();
-    console.log("Response from backend:", data);
-  } catch (error) {
-    console.error("Error sending speech text to backend:", error);
-  }
-};
-
-export default SpeechToTextComponent;
+export default SpeechApp;
